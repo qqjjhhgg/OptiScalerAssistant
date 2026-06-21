@@ -1,0 +1,48 @@
+# Build artifacts
+build/
+build/obj/
+*.obj
+*.pdb
+*.ilk
+*.res
+*.exp
+*.lib
+
+# Prebuilt binaries (downloaded via Releases, not tracked)
+exe/
+*.exe
+!OptiScalerAssistant.sln.exe
+!pack.bat.exe
+
+# IDE
+.vs/
+*.user
+*.suo
+*.cachefile
+*.db
+*.tlog
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+_*.txt
+
+# Dev-only translation scripts (use translate_safe.py in OptiScaler-src/)
+translate_*.py
+check_*.py
+find_*.py
+revert_*.py
+show_unique.py
+diff_files.py
+extract_strings.py
+calc_size.py
+prepare_release.py
+build_*.ps1
+check_*.ps1
+strings_to_translate.txt
+ui_strings.txt

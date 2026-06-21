@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OptiScaler 自动优化</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#f0f4f8;
+  --surface:#ffffff;
+  --surface-2:#f7f9fc;
+  --border:#d9e0e8;
+  --text:#1a202c;
+  --text-dim:#4a5568;
+  --text-mute:#718096;
+  --primary:#0066cc;
+  --primary-dim:#0052a3;
+  --primary-light:#e6f0fa;
+  --success:#16a34a;
+  --warn:#d97706;
+  --error:#dc2626;
+  --radius:10px;
+  --radius-sm:6px;
+  --radius-lg:14px;
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.05);
+  --mono:Consolas,'Cascadia Code','Segoe UI Mono',monospace;
+  --sans:'Segoe UI','Microsoft YaHei UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+button{cursor:pointer;border:none;background:none;color:inherit;font:inherit;outline:none}
+button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+input,select,textarea{font:inherit;color:inherit;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;outline:none;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--primary)}
+textarea{resize:none;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre}
+
+/* ========== App ========== */
+#app{display:flex;flex-direction:column;height:100vh;width:100%;min-width:0}
+#app.loading{filter:blur(0)}
+.main{flex:1;overflow-y:auto;padding:8px 10px}
+.container{max-width:960px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:6px}
+
+/* ========== Loading overlay ========== */
+#loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:2000;transition:opacity .25s ease}
+#loading-overlay.fade-out{opacity:0;pointer-events:none}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite}
+#loading-overlay p{color:var(--text-mute);font-size:13px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ========== Header ========== */
+.header{text-align:center;padding:2px 0}
+.header .title{font-size:18px;font-weight:700;color:var(--primary);letter-spacing:-.3px}
+.header .subtitle{font-size:11px;color:var(--text-mute);margin-top:1px}
+
+/* ========== Cards ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.card-head{display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface-2);font-size:12px;font-weight:600;color:var(--text)}
+.card-head .icon{font-size:13px;color:var(--primary)}
+.card-body{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+
+/* ========== Status summary ========== */
+.status-top{display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;background:var(--primary-light);border-bottom:1px solid rgba(0,102,204,.12);color:var(--primary);font-size:12px;font-weight:600}
+.status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px 10px;background:var(--surface)}
+@media (min-width:720px){.status-grid{grid-template-columns:repeat(4,1fr)}}
+.status-box{text-align:center;padding:6px 4px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
+.status-box .label{font-size:10px;color:var(--text-mute);margin-bottom:1px;display:flex;align-items:center;justify-content:center;gap:3px}
+.status-box .value{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap}
+.status-box .value.primary{color:var(--primary)}
+.status-box .unit{font-size:9px;color:var(--text-mute);font-weight:400}
+
+/* ========== Two column grid ========== */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:640px){.grid-2{grid-template-columns:1fr}}
+
+/* ========== Form rows ========== */
+.field{display:flex;flex-direction:column;gap:2px}
+.field .label{font-size:10px;color:var(--text-mute)}
+.field .control{display:flex;align-items:center;gap:6px;min-width:0}
+.field input,.field select{flex:1;min-width:0}
+.field .value-text{font-size:11px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gpu-line{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}
+.gpu-info-block{display:flex;flex-direction:column;gap:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px}
+.gpu-info-row{display:flex;align-items:center;gap:8px;min-width:0}
+.gpu-info-row.meta{font-size:11px;color:var(--text-mute);min-width:0}
+.gpu-info-row .gpu-name{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.game-info-block{display:flex;flex-direction:column;gap:5px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px}
+.gi-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+.gi-row.meta{font-size:11px;color:var(--text-mute)}
+.gi-icon{font-size:14px}
+.gi-name{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.game-type-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600;background:var(--primary-light);color:var(--primary)}
+.game-type-tag.subtle{background:var(--surface);color:var(--text-dim);border:1px solid var(--border)}
+.hk-hint{font-size:10px;color:var(--text-mute);margin-top:3px;line-height:1.4}
+.gpu-pill{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;background:#dcfce7;color:#15803d;flex-shrink:0}
+.gpu-pill.ok{background:#dcfce7;color:#15803d}
+.gpu-pill.ok .dot{background:#22c55e}
+.gpu-pill .dot{width:4px;height:4px;border-radius:50%;background:#22c55e}
+.gpu-pill.warn{background:#fef3c7;color:#b45309}
+.gpu-pill.warn .dot{background:#f59e0b}
+.gpu-pill.error{background:#fee2e2;color:#b91c1c}
+.gpu-pill.error .dot{background:#ef4444}
+.gpu-pill.idle{background:var(--surface-2);color:var(--text-mute)}
+.gpu-pill.idle .dot{background:var(--text-mute)}
+.path-input{display:flex;gap:5px;width:100%}
+.path-input input{flex:1;min-width:0;font-family:var(--mono);font-size:11px}
+.path-input button{padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)}
+.path-input button:hover{background:var(--surface-2);color:var(--text)}
+.dropdown{position:relative;width:100%}
+.dropdown select{appearance:none;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='%23718096' d='M6 9L2 5h8z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+.hotkey-capture{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 10px;font-family:var(--mono);font-size:11px;color:var(--text);min-width:64px;text-align:center;cursor:pointer;user-select:none}
+.hotkey-capture.listening{border-color:var(--primary);background:var(--primary-light);color:var(--primary)}
+
+/* ========== Toggle switch ========== */
+.toggle{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.toggle input{position:absolute;opacity:0;pointer-events:none}
+.toggle .slider{width:26px;height:14px;background:#cbd5e1;border-radius:7px;position:relative;transition:background .15s;flex-shrink:0}
+.toggle .slider::after{content:"";position:absolute;top:1.5px;left:1.5px;width:11px;height:11px;background:#fff;border-radius:50%;transition:all .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle input:checked + .slider{background:var(--primary)}
+.toggle input:checked + .slider::after{transform:translateX(12px)}
+.toggle .label-text{font-size:11px;color:var(--text-dim)}
+
+/* ========== Ini preview ========== */
+#ini-card{display:none}
+#ini-preview{width:100%;min-height:140px;height:clamp(140px,20vh,220px);resize:vertical;font-family:var(--mono);font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;color:var(--text);white-space:pre}
+.ini-meta{font-size:10px;color:var(--text-mute);text-align:right;margin-top:3px}
+
+/* ========== Log terminal ========== */
+.log-card{background:#111827;border:1px solid #1f2937;border-radius:var(--radius-lg);overflow:hidden}
+.log-head{display:flex;align-items:center;justify-content:space-between;padding:4px 10px;background:#1f2937;color:#9ca3af;font-size:10px}
+.log-head button{font-size:9px;color:#9ca3af;padding:2px 8px;border-radius:4px}
+.log-head button:hover{color:#fff;background:#374151}
+.terminal{background:#111827;padding:6px 10px;font-family:var(--mono);font-size:11px;line-height:1.5;height:clamp(90px,16vh,160px);overflow-y:auto;color:#9ca3af}
+
+/* ========== Action area ========== */
+.action-area{display:flex;flex-direction:column;align-items:center;gap:6px;padding:2px 0 4px}
+.btn-optimize{width:100%;max-width:420px;padding:10px 18px;border-radius:var(--radius-lg);background:var(--primary);color:#fff;font-size:14px;font-weight:700;box-shadow:0 3px 10px rgba(0,102,204,.35);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-optimize:hover:not(:disabled){background:var(--primary-dim);transform:translateY(-1px)}
+.btn-optimize:disabled{opacity:.5;cursor:not-allowed}
+.action-links{display:flex;align-items:center;gap:14px}
+.action-links button{font-size:10px;color:var(--text-mute);padding:3px 8px;border-radius:4px}
+.action-links button:hover{color:var(--error);background:#fee2e2}
+.action-links button.secondary:hover{color:var(--primary);background:var(--primary-light)}
+
+/* ========== Anti-cheat warning ========== */
+.anticheat-warn{--ac-color:#92400e;display:flex;align-items:center;gap:8px;padding:8px 10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:var(--radius);color:var(--ac-color);font-size:11px;line-height:1.4}
+.anticheat-warn.error{--ac-color:#991b1b;background:#fef2f2;border-color:#fca5a5}
+.anticheat-warn .icon{flex-shrink:0;font-size:16px}
+.anticheat-warn .body{flex:1}
+.anticheat-warn .body strong{display:block;margin-bottom:1px;font-size:12px}
+.anticheat-warn .actions{display:flex;gap:6px;flex-shrink:0}
+.anticheat-warn button{font-size:10px;padding:4px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--ac-color);color:var(--ac-color);cursor:pointer;transition:all .15s}
+.anticheat-warn button:hover{background:var(--surface-2)}
+.anticheat-warn button.primary{background:var(--ac-color);color:#fff;border-color:var(--ac-color);font-weight:600}
+.anticheat-warn button.primary:hover{filter:brightness(.9)}
+
+/* ========== Toast ========== */
+.toast-container{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1000;pointer-events:none}
+.toast{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:220px;max-width:320px;animation:slideIn .2s ease;pointer-events:auto}
+.toast.success{border-left:3px solid var(--success)}
+.toast.error{border-left:3px solid var(--error)}
+.toast.info{border-left:3px solid var(--primary)}
+.toast.warn{border-left:3px solid var(--warn)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* ========== Modal ========== */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:999}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;max-width:420px;width:90%;box-shadow:var(--shadow)}
+.modal-title{font-size:15px;font-weight:600;margin-bottom:8px}
+.modal-body{font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;white-space:pre-line}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px}
+.modal-actions .btn{padding:6px 14px;border-radius:var(--radius-sm);font-size:12px;font-weight:600}
+.modal-actions .btn-secondary{background:var(--surface-2);border:1px solid var(--border);color:var(--text)}
+.modal-actions .btn-primary{background:var(--primary);color:#fff}
+
+.icon{display:inline-block;width:14px;height:14px;background:currentColor;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;vertical-align:middle}
+</style>
+</head>
+<body>
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <p>正在初始化 OptiScaler 自动优化...</p>
+</div>
+
+<div id="app">
+  <div class="main">
+    <div class="container">
+      
+      <div class="header">
+        <div class="title">OptiScaler 自动优化</div>
+        <div class="subtitle">一键优化您的游戏性能与画质</div>
+      </div>
+
+      <div class="card" id="status-card">
+        <div class="status-top">
+          <span>✓</span>
+          <span id="status-title">最佳设置已找到</span>
+        </div>
+        <div class="status-grid">
+          <div class="status-box">
+            <div class="label"><span>🖥</span> 目标分辨率</div>
+            <div class="value" id="box-resolution">2K</div>
+          </div>
+          <div class="status-box">
+            <div class="label"><span>⚙</span> 预设模式</div>
+            <div class="value primary" id="box-preset">质量</div>
+          </div>
+          <div class="status-box">
+            <div class="label"><span>⏵</span> 帧生成</div>
+            <div class="value" id="box-fg">已启用</div>
+          </div>
+          <div class="status-box">
+            <div class="label"><span>◉</span> 锐化强度</div>
+            <div class="value" id="box-sharpen">0.5</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="anticheat-warn" id="anticheat-warn" style="display:none">
+        <div class="icon">⚠</div>
+        <div class="body" id="anticheat-msg">
+          <strong>检测到反作弊系统</strong>
+          注入可能违反游戏 EULA，存在封号风险。
+        </div>
+        <div class="actions">
+          <button id="btn-anticheat-cancel">取消</button>
+          <button class="primary" id="btn-anticheat-continue">已知风险，继续</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        
+        <div class="card">
+          <div class="card-head"><span class="icon" style="-webkit-mask-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path d=%22M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z%22/></svg>')"> </span>显卡 & 游戏信息</div>
+          <div class="card-body">
+            <div class="field">
+              <div class="label">当前 GPU</div>
+              <div id="gpu-info" class="gpu-info-block">
+                <div class="gpu-info-row">
+                  <span class="gpu-pill idle" id="gpu-pill"><span class="dot"></span>未检测</span>
+                  <span class="gpu-name" id="gpu-name">—</span>
+                </div>
+                <div class="gpu-info-row meta">
+                  <span id="gpu-meta">启动后自动检测</span>
+                </div>
+              </div>
+              <div style="margin-top:6px;display:flex;gap:6px">
+                <button id="btn-detect-gpu" style="flex:1;padding:5px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)">🔄 重新检测</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label">目标分辨率</div>
+              <div class="dropdown">
+                <select id="sel-resolution">
+                  <option value="1920x1080">1920 × 1080 (1080p)</option>
+                  <option value="2560x1440" selected>2560 × 1440 (2K)</option>
+                  <option value="3840x2160">3840 × 2160 (4K)</option>
+                  <option value="3440x1440">3440 × 1440 (带鱼屏)</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label">游戏启动程序 / 目录</div>
+              <div class="path-input">
+                <input type="text" id="inp-game-path" placeholder="点击右侧"浏览"选择 game.exe，或粘贴路径后点"扫描"">
+                <button id="btn-browse">选择 game.exe</button>
+                <button id="btn-scan">扫描</button>
+              </div>
+            </div>
+            <div class="field" id="row-game-info" style="display:none">
+              <div class="label">游戏信息</div>
+              <div class="game-info-block">
+                <div class="gi-row">
+                  <span class="gi-icon">🎮</span>
+                  <span class="gi-name" id="lbl-game-name">—</span>
+                </div>
+                <div class="gi-row meta">
+                  <span id="lbl-game-type" class="game-type-tag">—</span>
+                  <span id="lbl-game-arch" class="game-type-tag subtle">—</span>
+                </div>
+                <div class="gi-row meta">
+                  <span class="gpu-pill idle" id="lbl-anticheat"><span class="dot"></span>未扫描</span>
+                  <span style="font-size:11px;color:var(--text-mute)" id="lbl-anticheat-hint">反作弊检测</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span>⚙</span>注入配置</div>
+          <div class="card-body">
+            <div class="field">
+              <div class="label">DLL 类型 <span id="lbl-inject-hint" style="color:var(--primary);font-weight:500"></span></div>
+              <div class="dropdown">
+                <select id="sel-injection">
+                  <option value="winmm">winmm.dll（推荐 · 通用）</option>
+                  <option value="dxgi">dxgi.dll（D3D11/D3D12 游戏）</option>
+                  <option value="version">version.dll（兼容性佳）</option>
+                  <option value="d3d12">d3d12.dll（仅 D3D12）</option>
+                  <option value="dbghelp">dbghelp.dll（部分老游戏）</option>
+                  <option value="wininet">wininet.dll（联网游戏备选）</option>
+                  <option value="winhttp">winhttp.dll（联网游戏备选）</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label">超采样</div>
+              <div class="dropdown">
+                <select id="sel-upscaler">
+                  <option value="auto" selected>自动（按显卡选）</option>
+                  <option value="dlss">DLSS（NVIDIA 独显）</option>
+                  <option value="fsr3">FSR 3.1（AMD/Intel/通用）</option>
+                  <option value="xess">XeSS（Intel/全平台）</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label">帧生成</div>
+              <label class="toggle">
+                <input type="checkbox" id="chk-fg" checked>
+                <span class="slider"></span>
+                <span class="label-text">启用 OptiFG / FSR-FG</span>
+              </label>
+            </div>
+            <div class="field">
+              <div class="label">锐化</div>
+              <label class="toggle">
+                <input type="checkbox" id="chk-sharpen" checked>
+                <span class="slider"></span>
+                <span class="label-text">启用锐化（0.5 起始）</span>
+              </label>
+            </div>
+            <div class="field">
+              <div class="label">内嵌菜单热键</div>
+              <div class="control">
+                <div class="hotkey-capture" id="hk-menu" data-key="Insert">Insert</div>
+                <button id="btn-hk-reset" style="font-size:11px;color:var(--text-mute);padding:4px 10px;border-radius:4px">点击更改</button>
+              </div>
+              <div class="hk-hint" id="hk-hint">
+                <div>· 默认 <b>Insert</b>：游戏中按下可调出 OptiScaler 内嵌菜单</div>
+                <div>· 在 <b style="color:var(--primary)">一键优化前</b> 或 <b style="color:var(--primary)">之后</b> 都能修改，但需重新执行一键优化才会写入配置文件</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="ini-card">
+        <div class="card-head"><span>📝</span>推荐 OptiScaler 详细设置</div>
+        <div class="card-body" style="padding-top:10px">
+          <textarea id="ini-preview" readonly placeholder="; 选择游戏目录并完成显卡检测后将显示推荐配置..."></textarea>
+          <div class="ini-meta" id="ini-meta">—</div>
+        </div>
+      </div>
+
+      <div class="log-card">
+        <div class="log-head">
+          <span>🖥 系统日志</span>
+          <button id="btn-clear-log">清空</button>
+        </div>
+        <div class="terminal" id="terminal"></div>
+      </div>
+
+      <div class="action-area">
+        <button class="btn-optimize" id="btn-optimize">⚡ 一键优化</button>
+        <div class="action-links">
+          <button id="btn-uninstall">卸载</button>
+          <button class="secondary" id="btn-open-game">启动游戏</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+/* ===== State ===== */
+const state = {
+  gpu: null,
+  gamePath: '',
+  gameInfo: null,
+  injection: 'winmm',
+  upscaler: 'auto',
+  fgEnabled: true,
+  sharpenEnabled: true,
+  resolution: '2560x1440',
+  hotkeyMenu: 'Insert',
+  pendingAction: null,
+  acAcknowledged: false
+};
+
+/* ===== WebView2 bridge ===== */
+const bridge = {
+  _ready: false,
+  onMessage: null,
+  init() {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', e => {
+        try {
+          const msg = JSON.parse(e.data);
+          this._handle(msg);
+        } catch (err) { console.error('bad msg', err); }
+      });
+      this._ready = true;
+      this._send({ op: 'ready' });
+      return true;
+    }
+    return false;
+  },
+  _send(msg) {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage(JSON.stringify(msg));
+    } else {
+      console.warn('WebView2 unavailable', msg);
+    }
+  },
+  _handle(msg) {
+    if (this.onMessage) this.onMessage(msg);
+  },
+  detectGPU()            { this._send({ op: 'detect-gpu' }); },
+  browseFolder()         { this._send({ op: 'browse-folder' }); },
+  scanGame(path)         { this._send({ op: 'scan-game', path }); },
+  optimize(opts)         { this._send({ op: 'optimize', opts }); },
+  uninstall(path)        { this._send({ op: 'uninstall', path }); },
+  openGame(path)         { this._send({ op: 'open-game', path }); },
+  saveConfig(cfg)        { this._send({ op: 'save-config', cfg }); }
+};
+
+/* ===== Logger ===== */
+const term = document.getElementById('terminal');
+const log = {
+  _pending: [],
+  _flushTimer: null,
+  info(msg)    { this._add('info', msg); },
+  success(msg) { this._add('success', msg); },
+  warn(msg)    { this._add('warn', msg); },
+  error(msg)   { this._add('error', msg); },
+  _add(level, msg) {
+    this._pending.push({ level, msg, ts: new Date() });
+    if (!this._flushTimer) {
+      this._flushTimer = setTimeout(() => this._flush(), 50);
+    }
+  },
+  _flush() {
+    const html = this._pending.map(p => {
+      const t = p.ts.toTimeString().slice(0,8);
+      return `<div class="line"><span class="ts">[${t}]</span> <span class="lvl-${p.level}">${escapeHtml(p.msg)}</span></div>`;
+    }).join('');
+    term.insertAdjacentHTML('beforeend', html);
+    term.scrollTop = term.scrollHeight;
+    this._pending = [];
+    this._flushTimer = null;
+  }
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ===== Toast ===== */
+const toastContainer = document.getElementById('toast-container');
+function toast(msg, level = 'info', duration = 3500) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + level;
+  el.textContent = msg;
+  toastContainer.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .2s'; setTimeout(() => el.remove(), 200); }, duration);
+}
+
+/* ===== Loading overlay ===== */
+const loadingOverlay = document.getElementById('loading-overlay');
+function hideLoading() {
+  loadingOverlay.classList.add('fade-out');
+  setTimeout(() => loadingOverlay.style.display = 'none', 260);
+}
+
+/* ===== Status summary ===== */
+function updateStatusSummary() {
+  const resMap = { '1920x1080': '1080p', '2560x1440': '2K', '3840x2160': '4K', '3440x1440': '带鱼' };
+  document.getElementById('box-resolution').innerHTML = `${resMap[state.resolution] || state.resolution} <span class="unit">(${state.resolution.split('x')[1]}p)</span>`;
+  const presetMap = { 'auto': '自动', 'dlss': 'DLSS', 'fsr3': 'FSR3', 'xess': 'XeSS' };
+  const preset = state.upscaler === 'auto' ? (state.gpu ? (state.gpu.vendor === 'NVIDIA' ? 'DLSS' : state.gpu.vendor === 'Intel' ? 'XeSS' : 'FSR3') : '自动') : presetMap[state.upscaler];
+  document.getElementById('box-preset').textContent = preset;
+  document.getElementById('box-fg').textContent = state.fgEnabled ? '已启用' : '已关闭';
+  document.getElementById('box-sharpen').textContent = state.sharpenEnabled ? '0.5' : '关闭';
+}
+
+/* ===== GPU / Game ===== */
+function setGPU(gpu) {
+  state.gpu = gpu;
+  const pill = document.getElementById('gpu-pill');
+  const name = document.getElementById('gpu-name');
+  const meta = document.getElementById('gpu-meta');
+  if (!gpu) {
+    pill.className = 'gpu-pill idle';
+    pill.innerHTML = '<span class="dot"></span>未检测';
+    name.textContent = '—';
+    meta.textContent = '点击下方按钮自动检测';
+    updateStatusSummary();
+    return;
+  }
+  pill.className = 'gpu-pill ok';
+  pill.innerHTML = `<span class="dot"></span>${escapeHtml(gpu.vendor)}`;
+  name.textContent = gpu.name;
+  meta.textContent = `${gpu.vramMB}MB · 驱动 ${escapeHtml(gpu.driverVersion)}`;
+  updateStatusSummary();
+  // 重新计算推荐 ini（按当前游戏 + GPU）
+  refreshRecommendation();
+}
+
+function setGameInfo(info) {
+  state.gameInfo = info;
+  if (!info) {
+    document.getElementById('row-game-info').style.display = 'none';
+    refreshRecommendation();
+    return;
+  }
+  document.getElementById('row-game-info').style.display = 'flex';
+  document.getElementById('lbl-game-name').textContent = info.exeName || info.name || '—';
+  // 游戏类型 + 架构标签
+  const typeLabels = {
+    'd3d11': 'D3D11', 'd3d12': 'D3D12', 'opengl': 'OpenGL', 'vulkan': 'Vulkan',
+    'unity': 'Unity', 'ue4': 'Unreal Engine 4', 'ue5': 'Unreal Engine 5',
+    'source2': 'Source 2', 'other': '其他'
+  };
+  const archLabels = { 'x64': 'x64', 'x86': 'x86', 'arm64': 'ARM64' };
+  const typeEl = document.getElementById('lbl-game-type');
+  const archEl = document.getElementById('lbl-game-arch');
+  typeEl.textContent = typeLabels[info.gameType] || (info.gameType || '—');
+  archEl.textContent = archLabels[info.arch] || (info.arch || '');
+  archEl.style.display = info.arch ? 'inline-flex' : 'none';
+  // 反作弊
+  const acLbl = document.getElementById('lbl-anticheat');
+  const acHint = document.getElementById('lbl-anticheat-hint');
+  acLbl.className = 'gpu-pill ' + (info.acLevel === 'none' ? 'ok' : info.acLevel === 'extreme' ? 'error' : 'warn');
+  acLbl.innerHTML = `<span class="dot"></span>${escapeHtml(info.antiCheat || '无反作弊')}`;
+  acHint.textContent = info.acLevel === 'extreme' ? '极严：注入可能直接封号' :
+                       info.acLevel === 'strict' ? '严格：存在封号风险' : '安全：可放心使用';
+  if (info.acLevel === 'extreme') {
+    showACWarning('extreme', `检测到 ${info.antiCheat}（极严反作弊），注入几乎必然导致封号。`);
+  } else if (info.acLevel === 'strict') {
+    showACWarning('strict', `检测到 ${info.antiCheat}（严格反作弊），注入有封号风险。`);
+  } else {
+    hideACWarning();
+  }
+  // 注入方式随游戏类型自动建议
+  autoPickInjection(info);
+  // 实时生成 ini 推荐
+  refreshRecommendation();
+}
+
+// 根据游戏类型自动建议注入方式
+function autoPickInjection(info) {
+  const sel = document.getElementById('sel-injection');
+  const hint = document.getElementById('lbl-inject-hint');
+  let pick = 'winmm';
+  let reason = '通用推荐';
+  if (info.gameType === 'd3d12') { pick = 'd3d12'; reason = 'D3D12 游戏最佳'; }
+  else if (info.gameType === 'd3d11' || info.gameType === 'ue4' || info.gameType === 'ue5' || info.gameType === 'unity') { pick = 'dxgi'; reason = '该类型图形 API 最佳'; }
+  else if (info.acLevel === 'strict' || info.acLevel === 'extreme') { pick = 'version'; reason = '反作弊游戏用此更隐蔽'; }
+  sel.value = pick;
+  state.injection = pick;
+  state.injectionAuto = true;
+  hint.textContent = `已按游戏类型自动选择（${reason}）`;
+  // 用户手动改 select 后清掉自动提示
+  sel.oninput = () => {
+    if (state.injectionAuto && sel.value !== pick) {
+      state.injectionAuto = false;
+      hint.textContent = '已手动修改';
+    }
+  };
+}
+
+function refreshRecommendation() {
+  // 必须在已选择游戏后才生成 ini
+  if (!state.gameInfo || !state.gpu) {
+    setRecommendedIni(null, '');
+    return;
+  }
+  const ini = buildRecommendedIni(state.gpu, state.gameInfo, state);
+  setRecommendedIni(ini, '');
+}
+
+function buildRecommendedIni(gpu, game, st) {
+  const lines = [];
+  const preset = st.upscaler === 'auto'
+    ? (gpu.vendor === 'NVIDIA' ? 'dlss' : (gpu.vendor === 'Intel' ? 'xess' : 'fsr3'))
+    : st.upscaler;
+  const tier = gpu.tier;
+  const fg = !!st.fgEnabled;
+  const sharp = !!st.sharpenEnabled;
+  const ac = game.acLevel;
+  const gameType = game.gameType;
+
+  lines.push('; Auto-generated by OptiScaler Assistant (changed keys only)');
+  lines.push(`; GPU: ${gpu.name} (${gpu.vendor}, ${gpu.vramMB}MB, ${tier})`);
+  lines.push(`; Game: ${game.exeName || game.name || '—'}`);
+  lines.push(`; Type: ${gameType} / Arch: ${game.arch || 'x64'}`);
+  lines.push(`; AntiCheat: ${game.antiCheat || 'none'} (${ac})`);
+  lines.push(`; Resolution: ${st.resolution}`);
+  lines.push(`; Upscaler: ${preset}${fg ? ' + FG' : ''}${sharp ? ' + Sharpen' : ''}`);
+  lines.push('');
+
+  lines.push('[Upscalers]');
+  lines.push(`Upscaler=${preset}`);
+  // 质量档位按分辨率+等级
+  const w = parseInt((st.resolution || '2560x1440').split('x')[0], 10);
+  let q = '2';
+  if (w >= 3840) q = (tier === 'ultra' || tier === 'high') ? '1' : '2';
+  else if (w >= 2560) q = (tier === 'ultra' || tier === 'high') ? '2' : '3';
+  else q = (tier === 'low') ? '4' : '3';
+  lines.push(`QualityOverride=${q}`);
+  // 帧生成：开启时
+  if (fg) lines.push('FrameGenMode=2');
+  // 锐化
+  if (sharp) { lines.push('EnableSharpening=true'); lines.push('Sharpness=0.5'); }
+  // 反作弊：FG 关闭（容易被检测）
+  if (ac === 'strict' || ac === 'extreme') {
+    lines.push('; AntiCheat detected: force frame-gen off to reduce ban risk');
+  }
+  lines.push('');
+
+  // DLSS / FSR / XeSS 各自小节
+  if (preset === 'dlss') {
+    lines.push('[DLSS]');
+    lines.push(`Preset=${dlssPresetFor(tier)}`);
+    lines.push('RenderPresetOverride=true');
+    lines.push(`DlssPreset=${dlssPresetFor(tier)}`);
+    lines.push('OverrideMethod=auto');
+  } else if (preset === 'fsr3') {
+    lines.push('[FSR]');
+    lines.push(`Preset=${fsrPresetFor(tier)}`);
+    lines.push('UpscaleMethod=fsr3');
+    lines.push('EnableFsr3InputUpscaling=true');
+  } else if (preset === 'xess') {
+    lines.push('[XeSS]');
+    lines.push(`XeSSQuality=${xessPresetFor(tier)}`);
+    lines.push('EnableXeSS=true');
+  }
+  lines.push('');
+
+  // 注入配置
+  lines.push('[DllOverrides]');
+  lines.push(`Target=${st.injection || 'winmm'}`);
+  lines.push('');
+
+  // 内嵌菜单热键
+  lines.push('[Menu]');
+  lines.push(`ToggleKey=${st.hotkey || 'Insert'}`);
+
+  return lines.join('\n');
+}
+
+function dlssPresetFor(tier) { return tier==='ultra'||tier==='high' ? 'K' : 'M'; }
+function fsrPresetFor(tier)  { return tier==='ultra'||tier==='high' ? 'Quality' : 'Balanced'; }
+function xessPresetFor(tier) { return tier==='ultra'||tier==='high' ? '1.3' : '1.5'; }
+
+function showACWarning(level, msg) {
+  const w = document.getElementById('anticheat-warn');
+  const msgEl = document.getElementById('anticheat-msg');
+  w.classList.toggle('error', level === 'extreme');
+  msgEl.innerHTML = `<strong>${level === 'extreme' ? '高风险' : '风险提示'}</strong>${escapeHtml(msg)}`;
+  w.style.display = 'flex';
+  state.acAcknowledged = false;
+}
+function hideACWarning() {
+  document.getElementById('anticheat-warn').style.display = 'none';
+  state.acAcknowledged = true;
+}
+
+function setResolution(w, h) {
+  if (!w || !h) return;
+  const sel = document.getElementById('sel-resolution');
+  const val = `${w}x${h}`;
+  let found = false;
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === val) { found = true; break; }
+  }
+  if (!found) {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = `${w} × ${h}`;
+    sel.appendChild(opt);
+  }
+  sel.value = val;
+  state.resolution = val;
+  updateStatusSummary();
+}
+
+function setRecommendedIni(ini, meta) {
+  const card = document.getElementById('ini-card');
+  const el = document.getElementById('ini-preview');
+  if (!ini) {
+    card.style.display = 'none';
+    el.value = '';
+    return;
+  }
+  card.style.display = 'block';
+  el.value = ini;
+  document.getElementById('ini-meta').textContent = ini ? `约 ${ini.split('\n').length} 行 · 可手动修改后执行一键优化` : '—';
+}
+
+/* ===== Event bindings ===== */
+function bindChangeRefresh(id, prop) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    state[prop] = el.type === 'checkbox' ? el.checked : el.value;
+    if (prop === 'injection') state.injection = el.value;
+    if (prop === 'upscaler') state.upscaler = el.value;
+    if (prop === 'fgEnabled') state.fgEnabled = el.checked;
+    if (prop === 'sharpenEnabled') state.sharpenEnabled = el.checked;
+    if (prop === 'hotkey') state.hotkey = el.dataset.key || el.textContent.trim();
+    if (prop === 'resolution') state.resolution = el.value;
+    updateStatusSummary();
+    refreshRecommendation();
+  });
+}
+bindChangeRefresh('sel-injection', 'injection');
+bindChangeRefresh('sel-upscaler', 'upscaler');
+bindChangeRefresh('chk-fg', 'fgEnabled');
+bindChangeRefresh('chk-sharpen', 'sharpenEnabled');
+bindChangeRefresh('sel-resolution', 'resolution');
+
+document.getElementById('hk-menu').addEventListener('change', () => {
+  state.hotkey = document.getElementById('hk-menu').dataset.key || 'Insert';
+  refreshRecommendation();
+});
+
+document.getElementById('btn-detect-gpu').onclick = () => {
+  log.info('正在检测显卡...');
+  bridge.detectGPU();
+};
+document.getElementById('btn-browse').onclick = () => bridge.browseFolder();
+document.getElementById('btn-scan').onclick = () => {
+  const p = document.getElementById('inp-game-path').value.trim();
+  if (!p) { toast('请先选择游戏目录或游戏启动程序', 'warn'); return; }
+  log.info('扫描: ' + p);
+  bridge.scanGame(p);
+  // 调试：3 秒后如果没收到 game-info，主动拉取状态
+  setTimeout(() => {
+    if (!state.gameInfo) {
+      log.warn('未在 3 秒内收到 game-info 响应（可能 C++ 端扫描失败或被权限拦截）');
+    }
+  }, 3000);
+};
+document.getElementById('inp-game-path').addEventListener('input', e => {
+  state.gamePath = e.target.value;
+});
+// 注意：sel-injection / sel-upscaler / chk-fg / chk-sharpen / sel-resolution 的事件已在
+// 上方 bindChangeRefresh 中绑定。这里只保留 gamePath 的输入追踪。
+
+document.getElementById('btn-optimize').onclick = () => {
+  if (!state.gpu) { toast('请先检测显卡', 'warn'); return; }
+  if (!state.gamePath) { toast('请先选择游戏目录', 'warn'); return; }
+  if (state.gameInfo && state.gameInfo.acLevel === 'extreme' && !state.acAcknowledged) {
+    state.pendingAction = 'optimize';
+    showACWarning('extreme', `检测到 ${state.gameInfo.antiCheat}，几乎必然封号，仍要继续？`);
+    return;
+  }
+  doOptimize();
+};
+function doOptimize() {
+  log.info('开始一键优化...');
+  const opts = {
+    gamePath: state.gamePath,
+    resolution: state.resolution,
+    injection: state.injection,
+    upscaler: state.upscaler === 'auto' ? (state.gpu.vendor === 'NVIDIA' ? 'dlss' : state.gpu.vendor === 'Intel' ? 'xess' : 'fsr3') : state.upscaler,
+    fg: state.fgEnabled,
+    sharpen: state.sharpenEnabled,
+    hotkeyMenu: state.hotkeyMenu,
+    gpu: state.gpu,
+    game: state.gameInfo
+  };
+  bridge.optimize(opts);
+}
+
+document.getElementById('btn-anticheat-cancel').onclick = () => {
+  state.pendingAction = null;
+  state.acAcknowledged = false;
+  hideACWarning();
+};
+document.getElementById('btn-anticheat-continue').onclick = () => {
+  state.acAcknowledged = true;
+  hideACWarning();
+  if (state.pendingAction === 'optimize') {
+    state.pendingAction = null;
+    doOptimize();
+  }
+};
+
+document.getElementById('btn-uninstall').onclick = () => {
+  if (!state.gamePath) { toast('请先选择游戏目录', 'warn'); return; }
+  if (!confirm('确定要从游戏目录卸载 OptiScaler 并恢复原文件？')) return;
+  log.warn('正在卸载...');
+  bridge.uninstall(state.gamePath);
+};
+document.getElementById('btn-open-game').onclick = () => {
+  if (!state.gamePath) { toast('请先选择游戏目录', 'warn'); return; }
+  log.info('启动游戏...');
+  bridge.openGame(state.gamePath);
+};
+document.getElementById('btn-clear-log').onclick = () => { term.innerHTML = ''; log.info('日志已清空'); };
+
+/* ===== Hotkey capture ===== */
+const hkEl = document.getElementById('hk-menu');
+const hkResetBtn = document.getElementById('btn-hk-reset');
+
+// 把 e.key 归一化为可读名称 + 写入 ini 的 key 名称
+function normalizeKey(k) {
+  if (!k) return { display: '', ini: '' };
+  const map = {
+    'Control':  { display: 'Ctrl',  ini: 'Ctrl' },
+    'Shift':    { display: 'Shift', ini: 'Shift' },
+    'Alt':      { display: 'Alt',   ini: 'Alt' },
+    'Meta':     { display: 'Win',   ini: 'LWin' },
+    'ArrowUp':    { display: '↑',     ini: 'Up' },
+    'ArrowDown':  { display: '↓',     ini: 'Down' },
+    'ArrowLeft':  { display: '←',     ini: 'Left' },
+    'ArrowRight': { display: '→',     ini: 'Right' },
+    'Escape':   { display: 'Esc',   ini: 'Escape' },
+    ' ':        { display: 'Space', ini: 'Space' },
+    'Tab':      { display: 'Tab',   ini: 'Tab' },
+    'Enter':    { display: 'Enter', ini: 'Enter' },
+    'Numpad0':  { display: 'Num0',  ini: 'Num0' },
+    'Numpad1':  { display: 'Num1',  ini: 'Num1' },
+    'Numpad2':  { display: 'Num2',  ini: 'Num2' },
+    'Numpad3':  { display: 'Num3',  ini: 'Num3' },
+    'Numpad4':  { display: 'Num4',  ini: 'Num4' },
+    'Numpad5':  { display: 'Num5',  ini: 'Num5' },
+    'Numpad6':  { display: 'Num6',  ini: 'Num6' },
+    'Numpad7':  { display: 'Num7',  ini: 'Num7' },
+    'Numpad8':  { display: 'Num8',  ini: 'Num8' },
+    'Numpad9':  { display: 'Num9',  ini: 'Num9' }
+  };
+  if (map[k]) return map[k];
+  if (/^F\d{1,2}$/.test(k))  return { display: k, ini: k };
+  if (k.length === 1)         return { display: k.toUpperCase(), ini: k.toUpperCase() };
+  return { display: k, ini: k };
+}
+
+function startHkCapture() {
+  if (hkEl.classList.contains('listening')) return;
+  hkEl.classList.add('listening');
+  const original = hkEl.textContent;
+  hkEl.textContent = '按任意键... (Esc 取消，Backspace 清空)';
+  const handler = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const k = e.key;
+    if (k === 'Escape') {
+      hkEl.textContent = original;
+      hkEl.classList.remove('listening');
+      document.removeEventListener('keydown', handler, true);
+      return;
+    }
+    if (k === 'Backspace') {
+      state.hotkeyMenu = '';
+      state.hotkey = '';
+      hkEl.textContent = '未设置';
+      hkEl.dataset.key = '';
+    } else {
+      const n = normalizeKey(k);
+      state.hotkeyMenu = n.ini;
+      state.hotkey = n.ini;
+      hkEl.textContent = n.display;
+      hkEl.dataset.key = n.ini;
+    }
+    hkEl.classList.remove('listening');
+    document.removeEventListener('keydown', handler, true);
+    // 更新提示：已修改热键，需要重新一键优化才生效
+    const hkHint = document.getElementById('hk-hint');
+    if (state.hotkeyMenu) {
+      hkHint.innerHTML = `已修改为 <b style="color:var(--primary)">${escapeHtml(hkEl.textContent)}</b> · <span style="color:#b45309;font-weight:600">点击"一键优化"后才会写入配置文件</span>`;
+    } else {
+      hkHint.innerHTML = `已清空热键 · <span style="color:#b45309;font-weight:600">点击"一键优化"后才会写入配置文件</span>`;
+    }
+  };
+  document.addEventListener('keydown', handler, true);
+}
+hkEl.onclick = startHkCapture;
+hkResetBtn.onclick = startHkCapture;
+
+/* ===== Bridge inbound ===== */
+bridge.onMessage = msg => {
+  switch (msg.op) {
+    case 'gpu-info':       setGPU(msg.gpu); log.success(`检测到: ${msg.gpu.name} (${msg.gpu.vendor} ${msg.gpu.tier})`); break;
+    case 'gpu-error':      log.error('GPU 检测失败: ' + msg.error); toast('GPU 检测失败', 'error'); break;
+    case 'screen-resolution': setResolution(msg.res && msg.res.width, msg.res && msg.res.height); break;
+    case 'path-pick': {
+      const p = msg.path || '';
+      const inp = document.getElementById('inp-game-path');
+      inp.value = p;
+      state.gamePath = p;
+      log.info(msg.isExe ? '已选择游戏启动程序: ' + p : '已选择目录: ' + p);
+      // 如果是 exe（系统对话框选的文件），直接以它作为目标开始扫描
+      if (msg.isExe || /\.exe$/i.test(p)) {
+        const dir = p.replace(/[\/\\][^\/\\]+$/, '');
+        state.gamePath = dir;
+        inp.value = p; // 显示给用户看的就是 exe 完整路径
+        log.info('自动扫描游戏: ' + dir);
+        bridge.scanGame(p);
+      }
+      break;
+    }
+    case 'game-info':
+      log.info('收到 game-info: ' + JSON.stringify(msg.info).slice(0, 200));
+      setGameInfo(msg.info);
+      log.success(`游戏: ${msg.info.exeName} | 类型: ${msg.info.gameType} | 反作弊: ${msg.info.antiCheat} (${msg.info.acLevel})`);
+      break;
+    case 'game-error':     log.error('扫描失败: ' + msg.error); toast('扫描失败', 'error'); break;
+    case 'recommended-ini': setRecommendedIni(msg.ini, msg.meta); break;
+    case 'log':            log[msg.level] ? log[msg.level](msg.msg) : log.info(msg.msg); break;
+    case 'optimize-done':  log.success(msg.msg || '优化完成！'); toast('✓ OptiScaler 已安装', 'success'); break;
+    case 'optimize-fail':  log.error(msg.msg || '优化失败'); toast('优化失败', 'error'); break;
+    case 'uninstall-done': log.success(msg.msg || '已卸载'); toast('已卸载', 'success'); break;
+    case 'uninstall-fail': log.error(msg.msg || '卸载失败'); toast('卸载失败', 'error'); break;
+    case 'path-pick':      document.getElementById('inp-game-path').value = msg.path; state.gamePath = msg.path; break;
+    case 'app-ready':      hideLoading(); break;
+  }
+};
+
+/* ===== Boot ===== */
+window.addEventListener('DOMContentLoaded', () => {
+  log.info('OptiScaler 自动优化 v1.0 已启动');
+  log.info('WebView2 桥接初始化中...');
+  updateStatusSummary();
+  initBridge();
+});
+
+function initBridge() {
+  if (bridge.init()) {
+    log.success('WebView2 桥接就绪');
+  } else {
+    log.warn('WebView2 桥接暂不可用，等待...');
+    setTimeout(initBridge, 100);
+  }
+}
+</script>
+</body>
+</html>
